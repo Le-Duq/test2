@@ -4,20 +4,6 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Suivi des Dépenses</title>
-    <link rel="manifest" href="manifest.json">
-    <meta name="apple-mobile-web-app-capable" content="yes">
-    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-    <meta name="theme-color" content="#121212">
-    <link rel="apple-touch-icon" href="icon-192.png">
-    <script>
-        if ('serviceWorker' in navigator) {
-            window.addEventListener('load', () => {
-                navigator.serviceWorker.register('sw.js').then(() => {
-                    console.log("✅ Service Worker enregistré");
-                });
-            });
-        }
-    </script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
     <style>
@@ -38,7 +24,7 @@
 <h2>Suivi des Dépenses Mensuelles</h2>
 <table id="depensesTable">
     <tr>
-        <th>Catégorie</th><th>A Payer</th><th>Déjà Payé</th>
+        <th>Catégorie</th><th>A Payer</th><th>Déjà Payé</th><th>Reste</th>
     </tr>
     <script>
         const categories = ["loyer", "internet", "elec", "course", "resto", "activite", "essence", "economie", "autre"];
@@ -52,12 +38,14 @@
                 <button onclick="ajouterPaiement('${cat}')">Ajouter</button>
                 <div class="historique" id="${cat}_historique"></div>
             </td>
+            <td><span id="${cat}_reste">0</span> €</td>
         </tr>`).join(""));
     </script>
     <tr class="total-row">
         <td style="font-weight:bold;">Total général</td>
         <td><span id="total_a_payer"></span></td>
         <td><span id="total_deja_paye"></span></td>
+        <td><span id="total_reste"></span></td>
     </tr>
 </table>
 <h3>Compte</h3>
@@ -92,6 +80,7 @@
     function mettreAJourPaiements() {
         let totalPaye = 0;
         let totalAPayer = 0;
+        let totalReste = 0;
         categories.forEach(cat => {
             let liste = JSON.parse(localStorage.getItem(`${cat}_paye_list`)) || [];
             let somme = liste.reduce((a, b) => a + b, 0);
@@ -102,12 +91,16 @@
             historique.innerText = liste.map(v => (v >= 0 ? "+" : "") + v + " €").join(", ");
 
             const aPayerInput = document.getElementById(cat);
-            if (aPayerInput) totalAPayer += Number(aPayerInput.value || 0);
+            let aPayer = Number(aPayerInput.value || 0);
+            totalAPayer += aPayer;
+
+            const reste = somme - aPayer;
+            totalReste += reste;
+            document.getElementById(`${cat}_reste`).innerText = reste.toFixed(2);
 
             const catCell = document.getElementById(`cat_${cat}`);
             catCell.classList.remove("paye-complet", "paye-incomplet");
             if (aPayerInput) {
-                const aPayer = Number(aPayerInput.value);
                 if (somme === aPayer) {
                     catCell.classList.add("paye-complet");
                 } else if (somme > aPayer) {
@@ -119,6 +112,7 @@
         document.getElementById("deja_paye").innerText = totalPaye.toFixed(2);
         document.getElementById("total_deja_paye").innerText = totalPaye.toFixed(2);
         document.getElementById("total_a_payer").innerText = totalAPayer.toFixed(2);
+        document.getElementById("total_reste").innerText = totalReste.toFixed(2);
 
         const totalCompte = Number(document.getElementById("total_compte").innerText || 0);
         document.getElementById("total_restant").innerText = (totalCompte - totalPaye).toFixed(2);
@@ -158,18 +152,22 @@
             const imgHeight = (canvas.height * imgWidth) / canvas.width;
             doc.addImage(imgData, 'PNG', 10, 10, imgWidth, imgHeight);
             doc.save('suivi_depenses.pdf');
+
             localStorage.clear();
             document.querySelectorAll("input[type=number]").forEach(input => input.value = '');
             categories.forEach(cat => {
                 document.getElementById(`${cat}_paye_total`).innerText = '0';
                 document.getElementById(`${cat}_historique`).innerText = '';
+                document.getElementById(`${cat}_reste`).innerText = '0';
             });
+
             document.getElementById("total_a_payer").innerText = '';
             document.getElementById("total_deja_paye").innerText = '';
             document.getElementById("deja_paye").innerText = '';
             document.getElementById("total_compte").innerText = '';
             document.getElementById("compte_total").innerText = '';
             document.getElementById("total_restant").innerText = '';
+            document.getElementById("total_reste").innerText = '';
             updateCompte();
         });
     }
