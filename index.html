@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Suivi des Dépenses</title>
+    <link rel="manifest" href="manifest.json">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="theme-color" content="#121212">
+    <link rel="apple-touch-icon" href="icon-192.png">
+    <script>
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('sw.js').then(() => {
+                    console.log("✅ Service Worker enregistré");
+                });
+            });
+        }
+    </script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+    <style>
+        body { font-family: Arial, sans-serif; text-align: center; background-color: #121212; color: #ffffff; }
+        table { width: 80%; margin: 20px auto; border-collapse: collapse; background-color: #1e1e1e; color: #ffffff; }
+        th, td { border: 1px solid #ffffff; padding: 10px; text-align: center; }
+        th { background-color: #333333; }
+        input { width: 80px; text-align: center; }
+        .total { font-weight: bold; }
+        .paye-complet { background-color: #4caf50; }
+        .paye-incomplet { background-color: #e53935; }
+        button { margin: 5px; padding: 5px 10px; background-color: #007bff; color: white; border: none; cursor: pointer; }
+        button:hover { background-color: #0056b3; }
+        .historique { font-size: 0.9em; color: #ccc; margin-top: 5px; }
+    </style>
+</head>
+<body>
+<h2>Suivi des Dépenses Mensuelles</h2>
+<table id="depensesTable">
+    <tr>
+        <th>Catégorie</th><th>A Payer</th><th>Déjà Payé</th>
+    </tr>
+    <script>
+        const categories = ["loyer", "internet", "elec", "course", "resto", "activite", "essence", "economie", "autre"];
+        document.write(categories.map(cat => `
+        <tr>
+            <td id="cat_${cat}">${cat.charAt(0).toUpperCase() + cat.slice(1)}</td>
+            <td><input type="number" id="${cat}"></td>
+            <td>
+                <span id="${cat}_paye_total">0</span> €<br>
+                <input type="number" id="${cat}_paye_input" placeholder="± €">
+                <button onclick="ajouterPaiement('${cat}')">Ajouter</button>
+                <div class="historique" id="${cat}_historique"></div>
+            </td>
+        </tr>`).join(""));
+    </script>
+    <tr class="total-row">
+        <td style="font-weight:bold;">Total général</td>
+        <td><span id="total_a_payer"></span></td>
+        <td><span id="total_deja_paye"></span></td>
+    </tr>
+</table>
+<h3>Compte</h3>
+<table id="compteTable">
+    <tr><th>APL</th><th>Prime d'activité</th><th>Clara</th><th>Baptiste</th><th>Total</th></tr>
+    <tr>
+        <td><input type="number" id="apl"></td>
+        <td><input type="number" id="prime"></td>
+        <td><input type="number" id="clara"></td>
+        <td><input type="number" id="baptiste"></td>
+        <td class="total"><span id="total_compte"></span></td>
+    </tr>
+</table>
+<h3>Total Restant</h3>
+<table id="totalTable">
+    <tr><th>Compte</th><th>Déjà Payé</th><th>Total</th></tr>
+    <tr><td><span id="compte_total"></span></td><td><span id="deja_paye"></span></td><td class="total"><span id="total_restant"></span></td></tr>
+</table>
+<button onclick="generatePDF()">Télécharger en PDF</button>
+<script>
+    function ajouterPaiement(categorie) {
+        const input = document.getElementById(`${categorie}_paye_input`);
+        const valeur = Number(input.value);
+        if (!valeur || valeur === 0) return;
+        let liste = JSON.parse(localStorage.getItem(`${categorie}_paye_list`)) || [];
+        liste.push(valeur);
+        localStorage.setItem(`${categorie}_paye_list`, JSON.stringify(liste));
+        input.value = '';
+        mettreAJourPaiements();
+    }
+
+    function mettreAJourPaiements() {
+        let totalPaye = 0;
+        let totalAPayer = 0;
+        categories.forEach(cat => {
+            let liste = JSON.parse(localStorage.getItem(`${cat}_paye_list`)) || [];
+            let somme = liste.reduce((a, b) => a + b, 0);
+            document.getElementById(`${cat}_paye_total`).innerText = somme.toFixed(2);
+            totalPaye += somme;
+
+            const historique = document.getElementById(`${cat}_historique`);
+            historique.innerText = liste.map(v => (v >= 0 ? "+" : "") + v + " €").join(", ");
+
+            const aPayerInput = document.getElementById(cat);
+            if (aPayerInput) totalAPayer += Number(aPayerInput.value || 0);
+
+            const catCell = document.getElementById(`cat_${cat}`);
+            catCell.classList.remove("paye-complet", "paye-incomplet");
+            if (aPayerInput) {
+                const aPayer = Number(aPayerInput.value);
+                if (somme === aPayer) {
+                    catCell.classList.add("paye-complet");
+                } else if (somme > aPayer) {
+                    catCell.classList.add("paye-incomplet");
+                }
+            }
+        });
+
+        document.getElementById("deja_paye").innerText = totalPaye.toFixed(2);
+        document.getElementById("total_deja_paye").innerText = totalPaye.toFixed(2);
+        document.getElementById("total_a_payer").innerText = totalAPayer.toFixed(2);
+
+        const totalCompte = Number(document.getElementById("total_compte").innerText || 0);
+        document.getElementById("total_restant").innerText = (totalCompte - totalPaye).toFixed(2);
+    }
+
+    function updateCompte() {
+        let totalCompte = ["apl", "prime", "clara", "baptiste"].reduce((sum, id) => sum + Number(document.getElementById(id).value || 0), 0);
+        document.getElementById("total_compte").innerText = totalCompte;
+        document.getElementById("compte_total").innerText = totalCompte;
+        mettreAJourPaiements();
+    }
+
+    function saveData() {
+        document.querySelectorAll("input[type=number]").forEach(input => {
+            if (!input.id.includes("_paye_input")) {
+                localStorage.setItem(input.id, input.value);
+            }
+        });
+    }
+
+    function loadData() {
+        document.querySelectorAll("input[type=number]").forEach(input => {
+            if (!input.id.includes("_paye_input")) {
+                const val = localStorage.getItem(input.id);
+                if (val !== null) input.value = val;
+            }
+        });
+        updateCompte();
+    }
+
+    function generatePDF() {
+        const { jsPDF } = window.jspdf;
+        const doc = new jsPDF();
+        html2canvas(document.body).then(canvas => {
+            const imgData = canvas.toDataURL('image/png');
+            const imgWidth = 190;
+            const imgHeight = (canvas.height * imgWidth) / canvas.width;
+            doc.addImage(imgData, 'PNG', 10, 10, imgWidth, imgHeight);
+            doc.save('suivi_depenses.pdf');
+            localStorage.clear();
+            document.querySelectorAll("input[type=number]").forEach(input => input.value = '');
+            categories.forEach(cat => {
+                document.getElementById(`${cat}_paye_total`).innerText = '0';
+                document.getElementById(`${cat}_historique`).innerText = '';
+            });
+            document.getElementById("total_a_payer").innerText = '';
+            document.getElementById("total_deja_paye").innerText = '';
+            document.getElementById("deja_paye").innerText = '';
+            document.getElementById("total_compte").innerText = '';
+            document.getElementById("compte_total").innerText = '';
+            document.getElementById("total_restant").innerText = '';
+            updateCompte();
+        });
+    }
+
+    document.querySelectorAll("input[type=number]").forEach(input => {
+        input.addEventListener("input", () => {
+            saveData();
+            updateCompte();
+        });
+    });
+
+    window.onload = () => {
+        loadData();
+    }
+</script>
+</body>
+</html>
